@@ -1,3 +1,8 @@
+Release 0.84 2001-08-02 Doug Burke <djburke@cpan.org>
+
+- documentation now in Cosmology.pod so that CPAN will
+  pick it up. No functional change to v0.83.
+
 Release 0.83 2001-08-01 Doug Burke <djburke@cpan.org>
 	
 - Added version method, renamed string method to stringify.

@@ -26,6 +26,7 @@ History
 01 Aug 2001 v0.83  added version method, renamed string to stringify
                    further documentation improvements
                    improvements to test suite (thanks Brad)
+02 Aug 2001 v0.84  minor reorganisation, no change to code or docs
 
 Example
 -------

@@ -8,7 +8,7 @@ if ( $@ ) {
 ERROR
 
   The Astro::Cosmology module requires the PDL package to be installed
-  before it will build. PDL can be obtained from CPAN or from the PDL 
+  before it will build. PDL can be obtained from CPAN or from the PDL
   web site at http://pdl.perl.org/
 
 EOD
@@ -40,6 +40,10 @@ if ( $ExtUtils::MakeMaker::Version >= 5.4301 ) {
 # given that this file uses part of the PDL distribution
 # I'm not sure this is really any use
 $hash{PREREQ_PM} = { PDL => 0 };
+
+# handle the documentation
+# (separate from cosmo.pd since v0.84)
+$hash{MAN3PODS} = { 'Cosmology.pod' => q[$(INST_MAN3DIR)/Astro::Cosmology.$(MAN3EXT)] };
 
 WriteMakefile( %hash );
 
