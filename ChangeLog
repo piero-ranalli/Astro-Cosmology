@@ -1,3 +1,9 @@
+Release 0.90 2001-08-04 Doug Burke <djburke@cpan.org>
+
+- added more tests (thanks to Brad Holden)
+- more internal adjustments to the distribution (no
+  functional changes). Hopefully more compatible with CPAN now.
+
 Release 0.84 2001-08-02 Doug Burke <djburke@cpan.org>
 
 - documentation now in Cosmology.pod so that CPAN will

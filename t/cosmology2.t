@@ -6,33 +6,30 @@
 # independent, but was written by someone else and
 # uses a different integration scheme for the calculations.
 #
-# Note:
-#   . only checks the distance calculations
-#
-# To do:
-#   . check time and volume calculations
-#
 
 use strict;
 $|++;
 
 use Test;
 
-plan tests => 4;
+plan tests => 16;
 
 use PDL;
 use PDL::Math;
+use POSIX qw();
+
 use Astro::Cosmology;
 
 # time for some actual comments
 # This "module" is written so Doug has something to test against
 # for his Astro::Cosmology package
 
+my $nstep = 1e6;
+my $_tol = 1/$nstep;
+
 # this routine determines whether or not you have flat universe or
 # if you have to use the correction when going between the comoving
 # distance and the interesting distances (lum, ang, etc.)
-
-my $_tol = 1e-5;
 
 sub _not_flat {
 
@@ -84,6 +81,8 @@ Outputs
 =item comoving distance in units of the horizon distance
 
 =back
+
+Computation is done via direct integration using PDL's intover.
 
 =cut
 
@@ -155,6 +154,9 @@ Outputs
 
 =back
 
+Calls B<d_c()> to get the comoving distance, then computes curvature.
+Uses formula from David Hogg's astro-ph/9905116 paper.
+
 =cut
 
 sub d_m {
@@ -194,7 +196,7 @@ sub d_m {
 
 =pod
 
-=head1 B<lum_z>
+=head1 B<look_back_z>
 
 Inputs
 
@@ -204,19 +206,13 @@ Inputs
 
 Input redshift
 
-
-
 =item $matter
 
 Omega matter - defaults to 0.3
 
-
-
 =item $lambda
 
 Omega lambda - defaults to 0.7
-
-
 
 =item $nsteps
 
@@ -228,15 +224,16 @@ Outputs
 
 =over 4
 
-=item luminosity distance in units of the horizon distance
+=item lookback time in units of the Hubble time
 
 =back
 
+Computes by direct integration using PDL's intover routine, like
+B<d_c()>
+
 =cut
 
-# wrapper with correct 1+z
-
-sub lum_z {
+sub look_back_z {
 
   my $z = shift;
   my $matter = 0.3;
@@ -247,16 +244,35 @@ sub lum_z {
   $lambda = shift if(@_);
   $nsteps = shift if(@_);
 
-#  $nsteps = floor($nsteps);
+  $nsteps = POSIX::floor($nsteps);
 
-  my $dm = d_m($z,$matter,$lambda,$nsteps);
-  return((1+$z)*$dm);
+  my $curve = 1.0 - ($lambda + $matter);
 
+  # here I do the actual integration, slowly, in PDL
+
+  my $zs = xvals $nsteps;
+  $zs *= $z/$nsteps;
+  $zs += 0.5*$z/$nsteps;
+
+  # below is the E(z) term from David Hogg's writeup
+
+  my $ezs = $matter*(1+$zs)**3;
+  $ezs += $curve*(1+$zs)**2;
+  $ezs += $lambda;
+  $ezs = sqrt($ezs);
+
+  # below is integrand for the lookback time
+
+  $ezs *= (1+$zs);
+  $ezs = 1.0/$ezs;
+  $ezs *= $z/$nsteps;
+
+  return(intover($ezs));
 }
 
 =pod
 
-=head1 B<ang_z>
+=head1 B<comoving_volume_z>
 
 Inputs
 
@@ -266,19 +282,13 @@ Inputs
 
 Input redshift
 
-
-
 =item $matter
 
 Omega matter - defaults to 0.3
 
-
-
 =item $lambda
 
 Omega lambda - defaults to 0.7
-
-
 
 =item $nsteps
 
@@ -290,15 +300,15 @@ Outputs
 
 =over 4
 
-=item angular diameter distance in units of the horizon distance
+=item comoving volume in units of the Hubble volume
 
 =back
 
+Computes using an analytical formula from Carrol, Press and Turner, ARA&Ap, 1992, 30, 499
+
 =cut
 
-# wrapper with correct 1+z
-
-sub ang_z {
+sub comoving_volume_z {
 
   my $z = shift;
   my $matter = 0.3;
@@ -309,64 +319,96 @@ sub ang_z {
   $lambda = shift if(@_);
   $nsteps = shift if(@_);
 
-#  $nsteps = floor($nsteps);
+  $nsteps = POSIX::floor($nsteps);
 
+  my $curve = 1.0 - ($lambda + $matter);
+  my $sacurve = sqrt(abs($curve));
   my $dm = d_m($z,$matter,$lambda,$nsteps);
-  return($dm/(1+$z));
+  my $vc;
 
+  # this formula is from Carrol, Press and Turner, ARA&Ap, 1992, 30, 499
+  # however, it seems odd, as the volume will be negative for negative
+  # curvature.
+
+  if (!_not_flat($matter,$lambda)) {
+
+    $vc = $dm**3;
+    $vc /= 3.0;
+
+  } elsif (_not_flat($matter,$lambda) < 0) {
+    # negative curvature
+
+    $vc = $dm*sqrt(1+$curve*$dm**2) - asin($dm*$sacurve)/$sacurve;
+    $vc /= 2*$curve;
+
+  } else {
+
+    $vc = $dm*sqrt(1+$curve*$dm**2) - asinh($dm*$sacurve)/$sacurve;
+    $vc /= 2*$curve;
+
+  }
+
+  return($vc);
 }
 
+sub print_output {
 
-# Test Doug's code
-# first the right universe according to the Nova PBS series
-my $diff;
-my $abstol = 1.0e-5; # (this is the default tolerance for the romberg integration in Astro::Cosmology)
+  my $module_val = shift;
+  my $local_val = shift;
+  my $name_str = shift;
 
-my $sn = Astro::Cosmology->new({Matter=>0.3, Lambda=>0.7, H0=>0});
-my $z = 1.235;
-print $sn,"\n";
-my $m_ld = $sn->lum_dist($z);
-my $l_ld = lum_z($z,0.3,0.7,1000000);
-print "Module: ",$m_ld,"\n";
-print "Mine: ",$l_ld,"\n";
-$diff = abs($l_ld-$m_ld);
-print "Difference: ",sprintf("%.3g",$diff),"\n";
-ok( $diff < $abstol );
+  print "Module ".$name_str.": ",$module_val,"\n";
+  print "Local ".$name_str.": ",$local_val,"\n";
 
-# an open universe, coincidentally the best from my thesis....
+  my $adiff = abs($local_val-$module_val);
+  print "Absolute value of difference: ",
+    sprintf("%.3g",$adiff),"\n";
 
-my $opn = Astro::Cosmology->new({Matter=>0.32, Lambda=>0.0, H0=>0});
-print $opn,"\n";
-#$z = 0.9464;
-$m_ld = $opn->lum_dist($z);
-$l_ld = lum_z($z,0.32,0.0,1000000);
-print "Module: ",$m_ld,"\n";
-print "Mine: ",$l_ld,"\n";
-$diff = abs($l_ld-$m_ld);
-print "Difference: ",sprintf("%.3g",$diff),"\n";
-ok( $diff < $abstol );
+  if ($adiff < 1e-5) {
+    print "Absolute value of difference within tolerance for $name_str\n";
+  } else {
+    print "!!**Absolute value of difference exceeds tolerance for $name_str **!!\n";
+  }
 
-# a wacky closed universe
+  ok( $adiff < 1.0e-5 );
+}
 
-my $closed = Astro::Cosmology->new({Matter=>1.3, Lambda=>0.0, H0=>0});
-print $closed,"\n";
-$m_ld = $closed->lum_dist($z);
-$l_ld = lum_z($z,1.3,0.0,1000000);
-print "Module: ",$m_ld,"\n";
-print "Mine: ",$l_ld,"\n";
-$diff = abs($l_ld-$m_ld);
-print "Difference: ",sprintf("%.3g",$diff),"\n";
-ok( $diff < $abstol );
+# Tests Doug's code by comparing the local subroutines to values returned
+# by dougs Module.
 
-# a really wacky open universe
+sub run_test {
 
-my $weird = Astro::Cosmology->new({Matter=>1.3, Lambda=>-1.0, H0=>0});
-print $weird,"\n";
-$m_ld = $weird->lum_dist($z);
-$l_ld = lum_z($z,1.3,-1.0,1000000);
-print "Module: ",$m_ld,"\n";
-print "Mine: ",$l_ld,"\n";
-$diff = abs($l_ld-$m_ld);
-print "Difference: ",sprintf("%.3g",$diff),"\n";
-ok( $diff < $abstol );
+  my $z = shift;
+  my $om = shift;
+  my $ol = shift;
+  my $nstep = shift;
+
+  my $ac_obj = Astro::Cosmology->new({Matter=>$om, Lambda=>$ol, H0=>0});
+  print $ac_obj,"\n";
+  my $m_ld = $ac_obj->lum_dist($z);
+  my $m_ad = $ac_obj->adiam_dist($z);
+  my $m_lbt = $ac_obj->lookback_time($z);
+  my $m_vc = $ac_obj->comov_vol($z);
+
+  my $l_dm = d_m($z,$om,$ol,$nstep);
+  my $l_ld = $l_dm*(1+$z);
+  my $l_ad = $l_dm/(1+$z);
+  my $l_lbt = look_back_z($z,$om,$ol,$nstep);
+  my $l_vc = comoving_volume_z($z,$om,$ol,$nstep);
+
+  print_output($m_ld,$l_ld,"luminosity distance");
+  print_output($m_ad,$l_ad,"angular diameter distance");
+  print_output($m_lbt,$l_lbt,"lookback time");
+  print_output($m_vc,$l_vc,"comoving volume");
+  print "\n";
+}
+
+# Canonical flat universe
+run_test(1.235,0.3,0.7,1e6);
+# Open universe using best fit values from my thesis
+run_test(1.235,0.32,0.0,1e6);
+# weird closed universe
+run_test(1.235,1.32,0.0,1e6);
+# wacky open universe
+run_test(1.235,1.32,-1.0,1e6);
 

@@ -1,52 +1,34 @@
 # -*- perl -*-
 
-# try and be helpful if PDL is not available
-eval "use PDL::Core::Dev;";
-if ( $@ ) {
-    die <<'EOD';
-
-ERROR
-
-  The Astro::Cosmology module requires the PDL package to be installed
-  before it will build. PDL can be obtained from CPAN or from the PDL
-  web site at http://pdl.perl.org/
-
-EOD
-}
-
+# The Internal/ directory contains all the PDL code. This means
+# this level does not need to use PDL modules, so that CPAN can pick
+# up the PDL PREREQ hint and - more importantly - so that the top-level
+# directory can contain a *.pm file which contains a package name
+# and VERSION number (again for CPAN's benefit)
+#
+# NOTE:
+#  we do not process the files in the Internal/ directory if PDL is 
+#  not available
+#
 
 use ExtUtils::MakeMaker;
 use Cwd;
 
-$package = [ 'cosmo.pd', Cosmology, Astro::Cosmology ];
+my %extras;
 
-%hash = pdlpp_stdargs( $package );
-
-$hash{VERSION_FROM} = 'cosmo.pd';
-
-# what code do we want compiled and linked in?
-@wanted = qw( romberg utils );
-for $file ( @wanted ) {
-    $hash{OBJECT} .= " $file\$(OBJ_EXT)";
-}
-
-push @{ $hash{LIBS} }, "-lm";
+# should we process the Internal directory ?
+eval "use PDL::Core::Dev;";
+$extras{DIR} = [ 'Internal' ] unless $@;
 
 if ( $ExtUtils::MakeMaker::Version >= 5.4301 ) {
-    $hash{ABSTRACT} = 'calculate cosmological distances, volumes and times';
-    $hash{AUTHOR}   = 'Doug Burke (djburke@cpan.org)';
+    $extras{ABSTRACT} = 'calculate cosmological distances, volumes and times';
+    $extras{AUTHOR}   = 'Doug Burke (djburke@cpan.org)';
 }
 
-# given that this file uses part of the PDL distribution
-# I'm not sure this is really any use
-$hash{PREREQ_PM} = { PDL => 0 };
+WriteMakefile(
+	      NAME         => 'Astro::Cosmology',
+	      VERSION_FROM => 'Cosmology.pm',
+	      PREREQ_PM    => { PDL => 0 }, # this module requires PDL
+	      %extras,
+	     );
 
-# handle the documentation
-# (separate from cosmo.pd since v0.84)
-$hash{MAN3PODS} = { 'Cosmology.pod' => q[$(INST_MAN3DIR)/Astro::Cosmology.$(MAN3EXT)] };
-
-WriteMakefile( %hash );
-
-sub MY::postamble {
-    pdlpp_postamble($package);
-}

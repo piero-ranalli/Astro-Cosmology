@@ -18,15 +18,17 @@ on your system.
 History
 -------
 
-19 Jul 2001 v0.5   initial "public" release (as PDL::Astro::Cosmology)
-28 Jul 2001 v0.81  renamed to Astro::Cosmology
-                   removed need for PDL::Astro::Constants
-29 Jul 2001 v0.82  added STERADIAN to constants
-                   improved documentation
+04 Aug 2001 v0.90  more reorganisation. Hopefully CPAN-friendly now
+                   more tests (thanks Brad)
+02 Aug 2001 v0.84  minor reorganisation, no change to code or docs
 01 Aug 2001 v0.83  added version method, renamed string to stringify
                    further documentation improvements
                    improvements to test suite (thanks Brad)
-02 Aug 2001 v0.84  minor reorganisation, no change to code or docs
+29 Jul 2001 v0.82  added STERADIAN to constants
+                   improved documentation
+28 Jul 2001 v0.81  renamed to Astro::Cosmology
+                   removed need for PDL::Astro::Constants
+19 Jul 2001 v0.5   initial "public" release (as PDL::Astro::Cosmology)
 
 Example
 -------

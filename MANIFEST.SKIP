@@ -20,6 +20,5 @@ RCS
 ^pm_to_blib$
 MANIFEST\.bak$
 \.old$
-^Cosmology\.(c|pm|xs)$
+Internal\.(c|pm|xs)$
 pod2htm*
-

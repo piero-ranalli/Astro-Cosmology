@@ -529,3 +529,369 @@ This program is free software; you can redistribute it
 and/or modify it under the same terms as Perl itself.
 
 =cut
+
+#############################################################################
+##
+## CODE
+##
+#############################################################################
+
+package Astro::Cosmology;
+
+## TODO
+##   need access to constants (also used in Internal/internal.pd)
+##   (ie the ones that define the type of cosmology)
+##
+
+use strict;
+
+use Carp;
+
+use vars qw( $VERSION );
+$VERSION = '0.90';
+
+## set up some constants
+## -- really should be from something like Astro::Constants
+##    (see Astroconst at http://clavelina.as.arizona.edu/astroconst/)
+
+my @export_consts = qw(LIGHT PARSEC STERADIAN PI FOURPI YEAR_TROPICAL);
+
+# these are taken from my old PDL::Astro::Constants module
+use constant LIGHT     => 299792458;       # speed of light in m/s
+use constant PARSEC    => 3.085678e16;     # 1 parsec in m
+use constant STERADIAN => 3282.80635;      # 1 steradian in deg^2
+
+use constant YEAR_TROPICAL => 3.1556926e7; # 1 year (tropical) in seconds
+
+use constant PI     => 4.0 * atan2(1.0,1.0);   # should perhaps fix the value, rather than calculate it
+use constant FOURPI => 16.0 * atan2(1.0,1.0);   # should perhaps fix the value, rather than calculate it
+
+my @export_funcs = 
+  (
+  qw(
+     new setvars omega_matter matter omega_lambda lambda h0 h0
+     abs_mag absolute_magnitude app_mag apparent_magnitude
+     luminosity flux lookback_time lum_dist luminosity_distance
+     pmot_dist proper_motion_distance adiam_dist angular_diameter_distance
+     comov_dist comoving_distance comov_vol comovoing_volume
+     dcomov_vol differential_comoving_volume
+    )
+  );
+
+# set up the exports
+use vars qw ( @EXPORT_OK %EXPORT_TAGS );
+@EXPORT_OK = ( @export_funcs, @export_consts );
+%EXPORT_TAGS = ( 
+		Func => [@export_funcs],
+		constants => [@export_consts], 
+	       );
+
+####################################################################
+####################################################################
+
+# This is a hack - we should load these in from Astro::Cosmology::Internal,
+# or have them created from the same file
+#
+use constant UNKNOWN       =>  0;
+use constant EMPTY         =>  1;
+use constant MATTER_FLAT   =>  2;
+use constant MATTER_OPEN   =>  3;
+use constant MATTER_CLOSED =>  4;
+use constant LAMBDA_FLAT   => 10;
+use constant LAMBDA_OPEN   => 11;
+use constant LAMBDA_CLOSED => 12;
+
+####################################################################
+####################################################################
+
+use Astro::Cosmology::Internal;
+
+## Public routines:
+
+sub version { return "$VERSION"; }
+
+sub new {
+    my $this  = shift;
+    my $class = ref($this) || $this;
+
+    # class structure
+    my $self = {};
+
+    # set up the default options, and apply any that are given
+    $self->{options} =
+	new PDL::Options {
+	    OMEGA_MATTER => 1.0,
+	    OMEGA_LAMBDA => 0.0,
+	    H0           => 50.0,
+	    ABSTOL       => 1.0e-5
+	};
+    $self->{options}->synonyms( { MATTER => 'OMEGA_MATTER', LAMBDA => 'OMEGA_LAMBDA', HO => 'H0' } );
+    $self->{options}->incremental( 1 );
+
+    bless $self, $class;
+
+    # check values are sensible, sort out ancillary variables
+    $self->setvars( @_ );
+
+    # return the object
+    return $self;
+
+} # sub: new()
+
+use overload ("\"\""   =>  \&Astro::Cosmology::stringify);
+sub stringify {
+    my $self = shift;
+    my $om   = $self->matter();
+    my $ol   = $self->lambda();
+    my $h0   = $self->h0();
+    return "[ Omega_matter = $om  Omega_lambda = $ol  H0 = $h0 km/s/Mpc ]";
+} # sub: stringify()
+
+sub setvars ($$) {
+    my $self = shift;
+
+    if ( ref($_[0]) eq "HASH" ) {
+	$self->{options}->options( shift );
+    } else {
+	my %opts = ( @_ );
+	$self->{options}->options( \%opts );
+    }
+
+    my $dataref = $self->{options}->current();
+
+    my $matter  = $self->{OMEGA_MATTER} = $$dataref{OMEGA_MATTER};
+    my $lambda  = $self->{OMEGA_LAMBDA} = $$dataref{OMEGA_LAMBDA};
+    my $h0      = $self->{H0}           = $$dataref{H0};
+    my $abstol  = $self->{ABSTOL}       = abs( $$dataref{ABSTOL} );
+
+    $self->{COSMOLOGY} = UNKNOWN;
+
+    # sensible values
+    croak "ERROR: H0 must be >= 0.0.\n" unless $h0 >= 0.0;
+
+    # conversion values (distance/volume/time calculations)
+    # perhaps I should have called them HUBBLE_DIST/VOL/TIME ?
+    if ( $h0 > $abstol ) {
+	$self->{DCONV} = LIGHT * 1.0e-3 / $h0;
+	$self->{VCONV} = LIGHT * LIGHT * LIGHT * 1.0e-9 / ( $h0 * $h0 * $h0);
+	$self->{TCONV} = PARSEC * 1.0e3 / (YEAR_TROPICAL * $h0);
+    } else {
+	$self->{DCONV} = 1.0;
+	$self->{VCONV} = 1.0;
+	$self->{TCONV} = 1.0;
+    }
+
+    # just to ensure that it's defined
+    my $kappa  = 1.0 - $matter - $lambda;
+    $self->{OMEGA_KAPPA} = $kappa;
+    $self->{KAPPA} = sqrt( abs($kappa) );
+
+    # special case ?
+    #
+    if ( abs( $lambda ) <= $abstol ) {
+	# lambda == 0.0
+
+	if ( abs($matter) <= $abstol ) {
+	    $self->{COSMOLOGY} = EMPTY;
+	} elsif ( abs($kappa) <= $abstol ) {
+	    $self->{COSMOLOGY} = MATTER_FLAT;
+	} elsif ( $matter < 1.0 ) {
+	    $self->{COSMOLOGY} = MATTER_OPEN;
+	} else {
+	    $self->{COSMOLOGY} = MATTER_CLOSED;
+	}
+
+    } else {
+	# lambda != 0.0
+
+	if ( $kappa < -$abstol ) {
+	    # Closed
+	    $self->{COSMOLOGY} = LAMBDA_CLOSED;
+	} elsif ( $kappa > $abstol ) {
+	    # Open
+	    $self->{COSMOLOGY} = LAMBDA_OPEN;
+	} else {
+	    $self->{COSMOLOGY} = LAMBDA_FLAT;
+	}
+    }
+
+    # this would indicate a coding error!
+    croak "Unknown cosmology - omega_matter = $matter  omega_lambda = $lambda.\n"
+	if $self->{COSMOLOGY} == UNKNOWN;
+
+} # sub: setvars()
+
+sub omega_matter ($;$) {
+    my $self = shift;
+    $self->setvars( OMEGA_MATTER => $_[0] ) if @_;
+    return $self->{OMEGA_MATTER};
+}
+*matter = \&omega_matter;
+
+sub omega_lambda ($;$) {
+    my $self = shift;
+    $self->setvars( OMEGA_LAMBDA => $_[0] ) if @_;
+    return $self->{OMEGA_LAMBDA};
+}
+*lambda = \&omega_lambda;
+
+sub h0 ($;$) {
+    my $self = shift;
+    $self->setvars( H0 => $_[0] ) if @_;
+    return $self->{H0};
+}
+*hO = \&h0;
+
+# we ignore the need for K/evolutionary corrections
+# in the following
+#
+# NOTE:
+#   correct use of units is rather poor
+#
+sub abs_mag ($$$) {
+    my ( $self, $apparent, $z ) = @_;
+
+    return ( $apparent - 25 - 5 * $self->lum_dist($z)->log10() );
+
+} # sub: abs_mag()
+*absolute_magnitude = \&abs_mag;
+
+sub app_mag ($$$) {
+    my ( $self, $absolute, $z ) = @_;
+
+    return ( $absolute + 25 + 5 * $self->lum_dist($z)->log10() );
+
+} # sub: app_mag()
+*apparent_magnitude = \&app_mag;
+
+sub luminosity ($$$) {
+    my ( $self, $flux, $z ) = @_;
+
+    my $dl = $self->lum_dist($z) * 1.0e8 * PARSEC;  # convert to cm
+    return ( FOURPI * $dl * $dl * $flux );
+
+} # sub: luminosity()
+
+sub flux ($$$) {
+    my ( $self, $luminosity, $z ) = @_;
+
+    my $dl = $self->lum_dist($z) * 1.0e8 * PARSEC;  # convert to cm
+    return ( $luminosity / ( FOURPI * $dl * $dl ) );
+
+} # sub: flux()
+
+# note:
+#  one parameter:  age of z = 0  -> $1
+#  two parameters: age of z = $1 -> $2
+#
+# ie lookback_time ( [ $z_low ], $z_high )
+#
+# note: we call the C code directly
+#
+sub lookback_time ($$;$) {
+    my $self   = shift;
+    my $z_low  = $#_ == 1 ? shift : 0;   # let PDL do the threading if z_high is a piddle
+    my $z_high = shift;
+
+    return Astro::Cosmology::Internal::_lookback_time( $z_low, $z_high,
+			   $self->{OMEGA_MATTER}, $self->{OMEGA_LAMBDA},
+			   $self->{ABSTOL}, $self->{TCONV} );
+
+} # sub: lookback_time
+
+####################################################################
+#
+# distance measures: PM code
+#
+####################################################################
+
+sub lum_dist ($$) {
+    my $self = shift;
+    my $z    = shift;
+
+    return Astro::Cosmology::Internal::_lum_dist( $z, $self->{COSMOLOGY}, $self->{OMEGA_MATTER}, $self->{OMEGA_LAMBDA},
+		      $self->{KAPPA}, $self->{ABSTOL}, $self->{DCONV} );
+
+} # sub: lum_dist()
+*luminosity_distance = \&lum_dist;
+
+sub pmot_dist ($$) {
+    my $self = shift;
+    my $z    = shift;
+
+    return Astro::Cosmology::Internal::_lum_dist( $z, $self->{COSMOLOGY}, $self->{OMEGA_MATTER}, $self->{OMEGA_LAMBDA},
+		      $self->{KAPPA}, $self->{ABSTOL}, $self->{DCONV} ) /
+			  (1.0+$z);
+
+} # sub: pmot_dist()
+*proper_motion_distance = \&pmot_dist;
+
+sub adiam_dist ($$) {
+    my $self = shift;
+    my $z    = shift;
+
+    return Astro::Cosmology::Internal::_lum_dist( $z, $self->{COSMOLOGY}, $self->{OMEGA_MATTER}, $self->{OMEGA_LAMBDA},
+		      $self->{KAPPA}, $self->{ABSTOL}, $self->{DCONV} ) /
+			  ( (1.0+$z) * (1.0+$z) );
+
+} # sub: adiam_dist()
+*angular_diameter_distance = \&adiam_dist;
+
+sub comov_dist ($$) {
+    my $self = shift;
+    my $z    = shift;
+
+    return Astro::Cosmology::Internal::_comov_dist( $z, $self->{OMEGA_MATTER}, $self->{OMEGA_LAMBDA},
+			$self->{ABSTOL}, $self->{DCONV} );
+
+} # sub: comov_dist()
+*comoving_distance = \&comov_dist;
+
+####################################################################
+#
+# volume measures: PM code
+#
+####################################################################
+
+sub comov_vol ($$) {
+    my $self = shift;
+    my $z    = shift;
+
+    # we want dm to be in units of the hubble distance, which
+    # means that we need DCONV == 1
+    my $_dconv = $self->{DCONV};
+    $self->{DCONV} = 1.0;
+    my $dm = $self->pmot_dist( $z );
+    $self->{DCONV} = $_dconv;
+
+    return Astro::Cosmology::Internal::_comov_vol( $dm, $self->{COSMOLOGY},
+		       $self->{OMEGA_MATTER}, $self->{OMEGA_LAMBDA}, $self->{OMEGA_KAPPA},
+		       $self->{KAPPA}, $self->{VCONV} );
+
+} # sub: comov_vol()
+*comoving_volume = \&comov_vol;
+
+sub dcomov_vol ($$) {
+    my $self = shift;
+    my $z    = shift;
+
+    # we want dm to be in units of the hubble distance, which
+    # means that we need _DCONV == 1
+    my $_dconv = $self->{DCONV};
+    $self->{DCONV} = 1.0;
+    my $dm = $self->pmot_dist( $z );
+    $self->{DCONV} = $_dconv;
+
+    # calculate the differential proper motion distance
+    my $ddmdz = Astro::Cosmology::Internal::_dpmot( $z, $dm, $self->{COSMOLOGY},
+			$self->{OMEGA_MATTER}, $self->{OMEGA_LAMBDA}, $self->{OMEGA_KAPPA} );
+
+    return Astro::Cosmology::Internal::_dcomov_vol( $dm, $ddmdz, $self->{OMEGA_KAPPA}, $self->{VCONV} );
+
+} # sub: dcomov_vol()
+*differential_comoving_volume = \&dcomov_vol;
+
+## End
+1;
+
+

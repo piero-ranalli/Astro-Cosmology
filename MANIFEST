@@ -1,10 +1,15 @@
 ChangeLog
-Cosmology.pod
+Cosmology.pm
+Internal/Makefile.PL
+Internal/internal.pd
+Internal/romberg.c
+Internal/romberg.h
+Internal/utils.c
+Internal/utils.h
 MANIFEST
 MANIFEST.SKIP
 Makefile.PL
 README
-cosmo.pd
 cpt/angular_diameter.pl
 cpt/differential_comoving_volume.pl
 cpt/lookback_time.pl
@@ -14,9 +19,5 @@ hogg/distance_modulus.pl
 hogg/lookback_time.pl
 hogg/luminosity_distance.pl
 hogg/proper_motion.pl
-romberg.c
-romberg.h
 t/cosmology.t
 t/cosmology2.t
-utils.c
-utils.h
