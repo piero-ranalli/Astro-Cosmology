@@ -19,7 +19,7 @@ use Test;
 
 use PDL;
 
-plan tests => 43;
+plan tests => 37;
 
 $|++;
 
@@ -128,12 +128,12 @@ check0( $dl_sn  - $sn->luminosity_distance($z)  );
 check0( $dl_opn - $opn->luminosity_distance($z)  );
 
 # check we can call without the OO syntax
-check0( $dl_eds - lum_dist($eds,$z) );
-check0( $dl_sn  - lum_dist($sn,$z)  );
-check0( $dl_opn - lum_dist($opn,$z)  );
-check0( $dl_eds - luminosity_distance($eds,$z) );
-check0( $dl_sn  - luminosity_distance($sn,$z)  );
-check0( $dl_opn - luminosity_distance($opn,$z)  );
+#check0( $dl_eds - lum_dist($eds,$z) );
+#check0( $dl_sn  - lum_dist($sn,$z)  );
+#check0( $dl_opn - lum_dist($opn,$z)  );
+#check0( $dl_eds - luminosity_distance($eds,$z) );
+#check0( $dl_sn  - luminosity_distance($sn,$z)  );
+#check0( $dl_opn - luminosity_distance($opn,$z)  );
 
 # not really a fair check, as calculated these using this module
 my $dl_eds_ans = pdl( [3300.7765, 7024.5742, 15204.864] );
